@@ -1,0 +1,318 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
+}
+
+model User {
+  id           String            @id @default(cuid())
+  email        String            @unique
+  passwordHash String
+  name         String?
+  createdAt    DateTime          @default(now())
+  memberships  WorkspaceMember[]
+}
+
+model Workspace {
+  id             String              @id @default(cuid())
+  name           String
+  createdAt      DateTime            @default(now())
+  members        WorkspaceMember[]
+  settings       WorkspaceSettings?
+  knowledgeBases KnowledgeBase[]
+  agents         Agent[]
+  intakeForms    IntakeForm[]
+  contactLists   ContactList[]
+  campaigns      Campaign[]
+  calls          Call[]
+  workflows      Workflow[]
+  crmScenarios   CrmScenario[]
+  crmLeads       CrmLead[]
+}
+
+model WorkspaceMember {
+  id          String    @id @default(cuid())
+  userId      String
+  workspaceId String
+  role        String    @default("owner")
+  user        User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, workspaceId])
+}
+
+model WorkspaceSettings {
+  id               String    @id @default(cuid())
+  workspaceId      String    @unique
+  deepseekApiKey   String?
+  elevenlabsApiKey String?
+  twilioAccountSid String?
+  twilioAuthToken  String?
+  twilioFromNumber String?
+  smtpHost         String?
+  smtpPort         Int?
+  smtpUser         String?
+  smtpPass         String?
+  smtpFrom         String?
+  webhookBaseUrl   String?
+  workspace        Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+}
+
+model KnowledgeBase {
+  id          String               @id @default(cuid())
+  workspaceId String
+  name        String
+  description String?
+  createdAt   DateTime             @default(now())
+  updatedAt   DateTime             @updatedAt
+  workspace   Workspace            @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  docs        KnowledgeDoc[]
+  agents      AgentKnowledgeBase[]
+  ownerAgent  Agent?               @relation("OwnedKnowledge")
+
+  @@index([workspaceId])
+}
+
+model KnowledgeDoc {
+  id              String           @id @default(cuid())
+  knowledgeBaseId String
+  type            String
+  title           String
+  url             String?
+  content         String
+  metadata        Json?
+  createdAt       DateTime         @default(now())
+  knowledgeBase   KnowledgeBase    @relation(fields: [knowledgeBaseId], references: [id], onDelete: Cascade)
+  chunks          KnowledgeChunk[]
+}
+
+model KnowledgeChunk {
+  id              String        @id @default(cuid())
+  docId           String
+  knowledgeBaseId String
+  content         String
+  doc             KnowledgeDoc  @relation(fields: [docId], references: [id], onDelete: Cascade)
+
+  @@index([knowledgeBaseId])
+}
+
+model Agent {
+  id                     String               @id @default(cuid())
+  workspaceId            String
+  name                   String
+  role                   String               @default("sales")
+  language               String               @default("English")
+  systemPrompt           String
+  greeting               String
+  voicemailMessage       String?
+  elevenlabsVoiceId      String?
+  intakeFormId           String?
+  ownedKnowledgeBaseId   String?              @unique
+  playbooks              Json?
+  transferTo             String?
+  transferPhrases        String?
+  smsMessage             String?
+  bookingNotes           String?
+  followUpText           String?
+  webhookUrl             String?
+  createdAt              DateTime             @default(now())
+  updatedAt              DateTime             @updatedAt
+  workspace              Workspace            @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  intakeForm             IntakeForm?          @relation(fields: [intakeFormId], references: [id], onDelete: SetNull)
+  ownedKnowledgeBase     KnowledgeBase?       @relation("OwnedKnowledge", fields: [ownedKnowledgeBaseId], references: [id], onDelete: SetNull)
+  knowledgeBases         AgentKnowledgeBase[]
+  campaigns              Campaign[]
+  calls                  Call[]
+  workflows              Workflow[]
+
+  @@index([workspaceId])
+}
+
+model AgentKnowledgeBase {
+  agentId         String
+  knowledgeBaseId String
+  agent           Agent         @relation(fields: [agentId], references: [id], onDelete: Cascade)
+  knowledgeBase   KnowledgeBase @relation(fields: [knowledgeBaseId], references: [id], onDelete: Cascade)
+
+  @@id([agentId, knowledgeBaseId])
+}
+
+model IntakeForm {
+  id          String           @id @default(cuid())
+  workspaceId String
+  name        String
+  createdAt   DateTime         @default(now())
+  updatedAt   DateTime         @updatedAt
+  workspace   Workspace        @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  questions   IntakeQuestion[]
+  agents      Agent[]
+
+  @@index([workspaceId])
+}
+
+model IntakeQuestion {
+  id           String     @id @default(cuid())
+  formId       String
+  order        Int
+  key          String
+  prompt       String
+  type         String     @default("text")
+  options      Json?
+  /// When set, only ask this question after the CRM scenario with this slug is active. Null = ask whenever natural.
+  scenarioSlug String?
+  form         IntakeForm @relation(fields: [formId], references: [id], onDelete: Cascade)
+
+  @@index([formId])
+}
+
+model ContactList {
+  id          String     @id @default(cuid())
+  workspaceId String
+  name        String
+  countryCode String     @default("+91")
+  createdAt   DateTime   @default(now())
+  workspace   Workspace  @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  contacts    Contact[]
+  campaigns   Campaign[]
+
+  @@index([workspaceId])
+}
+
+model Contact {
+  id        String      @id @default(cuid())
+  listId    String
+  name      String?
+  phone     String
+  email     String?
+  company   String?
+  extra     Json?
+  createdAt DateTime    @default(now())
+  list      ContactList @relation(fields: [listId], references: [id], onDelete: Cascade)
+  calls     Call[]
+  crmLeads  CrmLead[]
+
+  @@index([listId])
+  @@index([phone])
+}
+
+model Campaign {
+  id           String      @id @default(cuid())
+  workspaceId  String
+  name         String
+  agentId      String
+  listId       String
+  status       String      @default("draft")
+  concurrency  Int         @default(1)
+  startedAt    DateTime?
+  createdAt    DateTime    @default(now())
+  updatedAt    DateTime    @updatedAt
+  workspace    Workspace   @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  agent        Agent       @relation(fields: [agentId], references: [id], onDelete: Restrict)
+  list         ContactList @relation(fields: [listId], references: [id], onDelete: Restrict)
+  calls        Call[]
+
+  @@index([workspaceId])
+  @@index([status])
+}
+
+model Call {
+  id            String         @id @default(cuid())
+  workspaceId   String
+  campaignId    String
+  contactId     String
+  agentId       String
+  twilioCallSid String?        @unique
+  status        String         @default("queued")
+  outcome       String?
+  transcript    Json?
+  intakeAnswers Json?
+  scenarioTag   String?
+  duration      Int?
+  recordingSid  String?
+  recordingUrl  String?
+  error         String?
+  startedAt     DateTime?
+  endedAt       DateTime?
+  createdAt     DateTime       @default(now())
+  workspace     Workspace      @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  campaign      Campaign       @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+  contact       Contact        @relation(fields: [contactId], references: [id], onDelete: Restrict)
+  agent         Agent          @relation(fields: [agentId], references: [id], onDelete: Restrict)
+  workflowRuns  WorkflowRun[]
+  crmLeads      CrmLead[]
+
+  @@index([workspaceId])
+  @@index([campaignId])
+  @@index([status])
+}
+
+model Workflow {
+  id           String         @id @default(cuid())
+  workspaceId  String
+  name         String
+  agentId      String?
+  trigger      String
+  condition    String?
+  emailSubject String
+  emailBody    String
+  enabled      Boolean        @default(true)
+  createdAt    DateTime       @default(now())
+  updatedAt    DateTime       @updatedAt
+  workspace    Workspace      @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  agent        Agent?         @relation(fields: [agentId], references: [id], onDelete: SetNull)
+  runs         WorkflowRun[]
+
+  @@index([workspaceId])
+}
+
+model WorkflowRun {
+  id         String   @id @default(cuid())
+  workflowId String
+  callId     String
+  status     String
+  error      String?
+  createdAt  DateTime @default(now())
+  workflow   Workflow @relation(fields: [workflowId], references: [id], onDelete: Cascade)
+  call       Call     @relation(fields: [callId], references: [id], onDelete: Cascade)
+
+  @@index([callId])
+}
+
+model CrmScenario {
+  id          String    @id @default(cuid())
+  workspaceId String
+  name        String
+  slug        String
+  description String?
+  phrases     String
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+  workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  leads       CrmLead[]
+
+  @@unique([workspaceId, slug])
+  @@index([workspaceId])
+}
+
+model CrmLead {
+  id         String      @id @default(cuid())
+  workspaceId String
+  scenarioId String
+  contactId  String
+  callId     String?
+  reason     String?
+  createdAt  DateTime    @default(now())
+  updatedAt  DateTime    @updatedAt
+  workspace  Workspace   @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  scenario   CrmScenario @relation(fields: [scenarioId], references: [id], onDelete: Cascade)
+  contact    Contact     @relation(fields: [contactId], references: [id], onDelete: Cascade)
+  call       Call?       @relation(fields: [callId], references: [id], onDelete: SetNull)
+
+  @@unique([scenarioId, contactId])
+  @@index([workspaceId])
+  @@index([callId])
+}
